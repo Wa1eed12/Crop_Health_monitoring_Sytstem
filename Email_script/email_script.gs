@@ -2,24 +2,24 @@ var DRIVE_FOLDER_NAME = 'CropHealthReports';
 var RECIPIENT_EMAIL = 'waleedasif651@gmail.com';
 var SENDER_NAME = 'Crop Health Monitor';
 
-// Check if summary.csv is in the folder
-function checkFileExists() {
+// Get every file in the folder whose name starts with "summary"
+function getAllSummaryFiles() {
   var folder = DriveApp.getFoldersByName(DRIVE_FOLDER_NAME).next();
-  var files = folder.getFilesByName('summary.csv');
+  var allFiles = folder.getFiles();
+  var summaryFiles = [];
 
-  if (files.hasNext()) {
-    Logger.log('summary.csv found');
-    return true;
-  } else {
-    Logger.log('summary.csv not found yet');
-    return false;
+  while (allFiles.hasNext()) {
+    var file = allFiles.next();
+    if (file.getName().indexOf('summary') === 0) {
+      summaryFiles.push(file);
+    }
   }
+
+  return summaryFiles;
 }
 
-// Read the CSV and extract the JSON part from it
-function readSummaryFile() {
-  var folder = DriveApp.getFoldersByName(DRIVE_FOLDER_NAME).next();
-  var file = folder.getFilesByName('summary.csv').next();
+// Read one file and extract the JSON part from it
+function readSummaryFile(file) {
   var text = file.getBlob().getDataAsString();
 
   Logger.log('CSV content: ' + text);
@@ -78,20 +78,17 @@ function buildEmail(data) {
 
   var html = '<div style="font-family:Segoe UI,Arial,sans-serif;max-width:640px;margin:0 auto;background:' + BG_LIGHT + ';">';
 
-  // Header
   html += '<div style="background:' + BRAND_PURPLE + ';padding:28px 24px;text-align:center;">';
   html += '<h1 style="color:white;margin:0;font-size:21px;font-weight:600;">Crop Health Report</h1>';
   html += '<p style="color:#E4E1FA;margin:6px 0 0;font-size:13px;">Image Date: ' + data.imageDate + ' &nbsp;·&nbsp; Source: ' + sensorLabel + '</p>';
   html += '</div>';
 
-  // Status card
   html += '<div style="background:white;margin:16px;padding:24px 20px;text-align:center;border-radius:14px;border:1px solid ' + CARD_BORDER + ';box-shadow:0 2px 10px rgba(108,92,231,0.06);">';
   html += '<div style="display:inline-block;background:' + statusColor + ';color:white;font-size:22px;font-weight:700;padding:10px 32px;border-radius:50px;letter-spacing:1.5px;">' + data.overallStatus + '</div>';
   html += '<p style="font-size:14px;color:' + TEXT_DARK + ';margin:14px 0 4px;">' + overallSummary + '</p>';
   html += '<p style="font-size:12px;color:' + TEXT_MUTED + ';margin:0;">Field cloud-free coverage: <strong>' + data.fieldCoveragePercent + '%</strong></p>';
   html += '</div>';
 
-  // KPI cards row
   var healthyCount = 0;
   var stressedCount = 0;
   var naCount = 0;
@@ -118,7 +115,6 @@ function buildEmail(data) {
   html += '<div style="font-size:20px;font-weight:700;color:' + TEXT_DARK + ';">' + naCount + '</div></div>';
   html += '</div>';
 
-  // Index table
   html += '<div style="margin:0 16px 16px;background:white;border-radius:14px;border:1px solid ' + CARD_BORDER + ';overflow:hidden;">';
   html += '<div style="padding:16px 18px 8px;font-size:14px;font-weight:600;color:' + TEXT_DARK + ';">Detailed Index Results</div>';
   html += '<table style="width:100%;border-collapse:collapse;font-size:13px;">';
@@ -165,7 +161,6 @@ function buildEmail(data) {
 
   html += '</table></div>';
 
-  // Explanation section
   html += '<div style="margin:0 16px 16px;background:white;border-radius:14px;border:1px solid ' + CARD_BORDER + ';padding:16px 18px;">';
   html += '<div style="font-size:14px;font-weight:600;color:' + TEXT_DARK + ';margin:0 0 12px;">What This Means</div>';
 
@@ -183,7 +178,6 @@ function buildEmail(data) {
 
   html += '</div>';
 
-  // Footer
   html += '<div style="background:' + BRAND_PURPLE_DARK + ';padding:22px 24px;text-align:center;">';
   html += '<p style="color:#E4E1FA;font-size:12px;margin:0 0 10px;">Auto-generated from satellite data on ' + data.reportDate + '</p>';
   html += '<div style="height:1px;background:rgba(255,255,255,0.15);margin:0 0 12px;"></div>';
@@ -195,43 +189,42 @@ function buildEmail(data) {
   return html;
 }
 
-// Delete all files from the folder after the email is sent
-function clearFolder() {
-  var folder = DriveApp.getFoldersByName(DRIVE_FOLDER_NAME).next();
-  var files = folder.getFiles();
-
-  while (files.hasNext()) {
-    files.next().setTrashed(true);
-  }
-
-  Logger.log('Folder cleared');
-}
-
-// Main function - runs every hour
+// Main function - runs every week
 function checkAndSendReport() {
   Logger.log('Checking folder...');
 
-  if (!checkFileExists()) {
-    Logger.log('File not ready, skipping this run');
+  var summaryFiles = getAllSummaryFiles();
+
+  if (summaryFiles.length === 0) {
+    Logger.log('No summary files found, skipping this run');
     return;
   }
 
-  var data = readSummaryFile();
-  var emailHTML = buildEmail(data);
+  Logger.log(summaryFiles.length + ' summary file(s) found. Sending one email per file.');
 
-  GmailApp.sendEmail(
-    RECIPIENT_EMAIL,
-    '[' + data.overallStatus + '] Crop Health Report - ' + data.reportDate,
-    'Open this email in HTML mode to view the report.',
-    { htmlBody: emailHTML, name: SENDER_NAME }
-  );
+  for (var f = 0; f < summaryFiles.length; f++) {
+    var file = summaryFiles[f];
 
-  Logger.log('Email sent!');
+    var data = readSummaryFile(file);
+    var emailHTML = buildEmail(data);
 
-  clearFolder();
+    GmailApp.sendEmail(
+      RECIPIENT_EMAIL,
+      '[' + data.overallStatus + '] Crop Health Report - ' + data.reportDate,
+      'Open this email in HTML mode to view the report.',
+      { htmlBody: emailHTML, name: SENDER_NAME }
+    );
+
+    Logger.log('Email sent for file: ' + file.getName());
+
+    // Delete this file now that its email has been sent
+    file.setTrashed(true);
+  }
+
+  Logger.log('All summary files processed and emails sent.');
 }
 
-// Run once to set up the hourly trigger
+// Run once to set up the weekly trigger
 function setupTrigger() {
   ScriptApp.newTrigger('checkAndSendReport')
     .timeBased()
@@ -239,5 +232,5 @@ function setupTrigger() {
     .onWeekDay(ScriptApp.WeekDay.MONDAY)
     .create();
 
-  Logger.log('Trigger created - will run every Week');
+  Logger.log('Trigger created - will run every week');
 }
