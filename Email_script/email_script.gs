@@ -1,8 +1,9 @@
 var DRIVE_FOLDER_NAME = 'CropHealthReports';
 var RECIPIENT_EMAIL = 'waleedasif651@gmail.com';
 var SENDER_NAME = 'Crop Health Monitor';
+var LOG_FILE_NAME = 'sent_log.txt';
 
-// Get every file in the folder whose name starts with "summary"
+// Get every CSV file in the folder whose name starts with "summary"
 function getAllSummaryFiles() {
   var folder = DriveApp.getFoldersByName(DRIVE_FOLDER_NAME).next();
   var allFiles = folder.getFiles();
@@ -10,7 +11,12 @@ function getAllSummaryFiles() {
 
   while (allFiles.hasNext()) {
     var file = allFiles.next();
-    if (file.getName().indexOf('summary') === 0) {
+    var name = file.getName();
+
+    var startsRight = name.toLowerCase().indexOf('summary') === 0;
+    var endsRight = name.toLowerCase().slice(-4) === '.csv';
+
+    if (startsRight && endsRight) {
       summaryFiles.push(file);
     }
   }
@@ -189,10 +195,26 @@ function buildEmail(data) {
   return html;
 }
 
+// Append one line to the sent-log file in the same Drive folder.
+// Creates the log file the first time it's needed.
+function appendToLog(folder, message) {
+  var logFiles = folder.getFilesByName(LOG_FILE_NAME);
+  var logFile;
+
+  if (logFiles.hasNext()) {
+    logFile = logFiles.next();
+    var existingText = logFile.getBlob().getDataAsString();
+    logFile.setContent(existingText + message + '\n');
+  } else {
+    logFile = folder.createFile(LOG_FILE_NAME, message + '\n', MimeType.PLAIN_TEXT);
+  }
+}
+
 // Main function - runs every week
 function checkAndSendReport() {
   Logger.log('Checking folder...');
 
+  var folder = DriveApp.getFoldersByName(DRIVE_FOLDER_NAME).next();
   var summaryFiles = getAllSummaryFiles();
 
   if (summaryFiles.length === 0) {
@@ -204,24 +226,39 @@ function checkAndSendReport() {
 
   for (var f = 0; f < summaryFiles.length; f++) {
     var file = summaryFiles[f];
+    var fileName = file.getName();
 
-    var data = readSummaryFile(file);
-    var emailHTML = buildEmail(data);
+    try {
+      var data = readSummaryFile(file);
+      var emailHTML = buildEmail(data);
 
-    GmailApp.sendEmail(
-      RECIPIENT_EMAIL,
-      '[' + data.overallStatus + '] Crop Health Report - ' + data.reportDate,
-      'Open this email in HTML mode to view the report.',
-      { htmlBody: emailHTML, name: SENDER_NAME }
-    );
+      GmailApp.sendEmail(
+        RECIPIENT_EMAIL,
+        '[' + data.overallStatus + '] Crop Health Report - ' + data.reportDate,
+        'Open this email in HTML mode to view the report.',
+        { htmlBody: emailHTML, name: SENDER_NAME }
+      );
 
-    Logger.log('Email sent for file: ' + file.getName());
+      Logger.log('Email sent for file: ' + fileName);
 
-    // Delete this file now that its email has been sent
-    file.setTrashed(true);
+      var timestamp = new Date().toISOString();
+      appendToLog(folder, timestamp + ' | SENT | ' + fileName + ' | status=' + data.overallStatus + ' | imageDate=' + data.imageDate + ' | sensor=' + data.sensorUsed);
+
+      // Only delete the file once we know its email was sent successfully
+      file.setTrashed(true);
+
+    } catch (err) {
+      // Something went wrong with this specific file. Log it, leave the
+      // file in place for next time, and move on to the next file instead
+      // of letting one bad file stop the whole run.
+      Logger.log('ERROR processing file ' + fileName + ': ' + err.message);
+
+      var errorTimestamp = new Date().toISOString();
+      appendToLog(folder, errorTimestamp + ' | FAILED | ' + fileName + ' | error=' + err.message);
+    }
   }
 
-  Logger.log('All summary files processed and emails sent.');
+  Logger.log('All summary files processed.');
 }
 
 // Run once to set up the weekly trigger
