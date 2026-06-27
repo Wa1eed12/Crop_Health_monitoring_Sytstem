@@ -431,16 +431,24 @@ fullStats.evaluate(function(stats) {
                 indices: indexResults
               };
 
+var nowStamp = new Date();
+              var y = nowStamp.getFullYear();
+              var mo = ('0' + (nowStamp.getMonth() + 1)).slice(-2);
+              var d = ('0' + nowStamp.getDate()).slice(-2);
+              var hh = ('0' + nowStamp.getHours()).slice(-2);
+              var mm = ('0' + nowStamp.getMinutes()).slice(-2);
+              var stampedFileName = CONFIG.OUTPUT_FILENAME + '_' + y + '-' + mo + '-' + d + '_' + hh + mm;
+
               var summaryFeature = ee.Feature(null, {json: JSON.stringify(summaryObject)});
               Export.table.toDrive({
                 collection: ee.FeatureCollection([summaryFeature]),
                 description: 'CropHealth_Summary',
                 folder: CONFIG.OUTPUT_FOLDER,
-                fileNamePrefix: CONFIG.OUTPUT_FILENAME,
+                fileNamePrefix: stampedFileName,
                 fileFormat: CONFIG.OUTPUT_FORMAT
               });
 
-              print('summary.csv export task created — open Tasks panel and click RUN.');
+              print(stampedFileName + '.csv export task created — open Tasks panel and click RUN.');
             });
           });
         });
